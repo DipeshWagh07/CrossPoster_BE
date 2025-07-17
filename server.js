@@ -228,6 +228,16 @@ const generatePKCE = () => {
 };
 
 
+app.get('/terms', (req, res) => {
+  res.sendFile(path.join(__dirname, 'terms.html'));
+});
+
+app.get('/privacy', (req, res) => {
+  res.sendFile(path.join(__dirname, 'privacy.html'));
+});
+
+
+
 app.get('/auth/tiktok', (req, res) => {
   try {
     const state = crypto.randomBytes(16).toString('hex');
