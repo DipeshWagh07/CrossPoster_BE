@@ -2,8 +2,8 @@ import { TwitterApi } from "twitter-api-v2";
 import axios from "axios";
 import fs from "fs";
 
-const TWITTER_API_KEY = "SbR5iyyJcLPoZP5nx27gWAqBo";
-const TWITTER_API_SECRET = "59nbvNET1M2cWuztQ02gR6FnJcpcNC7ZWSHDTe9QcoQfRh3XGE";
+const TWITTER_API_KEY = process.env.TWITTER_API_KEY;
+const TWITTER_API_SECRET = process.env.TWITTER_API_SECRET;
 const redirectUri = "https://cross-poster-fe.vercel.app/auth/twitter/callback";
 
 // Get OAuth authentication URL
@@ -46,7 +46,7 @@ export const getAccessToken = async (
       accessSecret: oauth_token_secret,
     });
 
-    const loginResult = await client.loginWithOAuth1(oauth_verifier);
+    const loginResult = await client.login(oauth_verifier);
 
     return {
       accessToken: loginResult.accessToken,
