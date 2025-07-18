@@ -74,7 +74,7 @@ const app = express();
 // Enhanced CORS configuration
 const allowedOrigins = [
   "https://cross-poster-fe.vercel.app", // Your Vercel frontend
-  "http://localhost:3000",             // Local development
+  "https://cross-poster-fe.vercel.app",             // Local development
   "https://crossposter-be.onrender.com" // Your Render backend
 ];
 
@@ -118,7 +118,7 @@ app.use(
 
 app.use(
   cors({
-    origin: ["https://postingapp-g0p1.onrender.com", "http://localhost:3000"],
+    origin: ["https://postingapp-g0p1.onrender.com", "https://cross-poster-fe.vercel.app"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-open-id"],

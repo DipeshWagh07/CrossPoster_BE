@@ -57,12 +57,12 @@ import {
   
     if (error) {
       console.error('YouTube OAuth error:', error);
-      const redirectUrl = `http://localhost:3000/auth/youtube/callback?error=${encodeURIComponent(error)}`;
+      const redirectUrl = `https://cross-poster-fe.vercel.app/auth/youtube/callback?error=${encodeURIComponent(error)}`;
       return res.redirect(redirectUrl);
     }
   
     if (!code) {
-      const redirectUrl = `http://localhost:3000/auth/youtube/callback?error=Authorization code not provided`;
+      const redirectUrl = `https://cross-poster-fe.vercel.app/auth/youtube/callback?error=Authorization code not provided`;
       return res.redirect(redirectUrl);
     }
   
@@ -71,11 +71,11 @@ import {
       const channelInfo = await getYouTubeChannelInfo(tokens.access_token);
       
       // Redirect to frontend with tokens
-      const redirectUrl = `http://localhost:3000/auth/youtube/callback?accessToken=${tokens.access_token}&refreshToken=${tokens.refresh_token}&channelId=${channelInfo.id}&channelName=${encodeURIComponent(channelInfo.snippet.title)}`;
+      const redirectUrl = `https://cross-poster-fe.vercel.app/auth/youtube/callback?accessToken=${tokens.access_token}&refreshToken=${tokens.refresh_token}&channelId=${channelInfo.id}&channelName=${encodeURIComponent(channelInfo.snippet.title)}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error('YouTube OAuth error:', error);
-      const redirectUrl = `http://localhost:3000/auth/youtube/callback?error=${encodeURIComponent(error.message)}`;
+      const redirectUrl = `https://cross-poster-fe.vercel.app/auth/youtube/callback?error=${encodeURIComponent(error.message)}`;
       res.redirect(redirectUrl);
     }
   };

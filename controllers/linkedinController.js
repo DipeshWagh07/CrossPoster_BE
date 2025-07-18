@@ -112,7 +112,7 @@ export const createLinkedInPost = async (req, res) => {
     }
 
     const linkedinResponse = await axios.post(
-      "http://localhost:8000/api/linkedin/post",
+      "https://crossposter-be.onrender.com/api/linkedin/post",
       {
         accessToken,
         text,
