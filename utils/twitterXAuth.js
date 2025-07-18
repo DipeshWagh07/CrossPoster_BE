@@ -39,22 +39,6 @@ export const getAccessToken = async (
   oauth_verifier
 ) => {
   try {
-    // Validate input parameters first
-    if (!oauth_token || !oauth_token_secret || !oauth_verifier) {
-      throw new Error("Missing required OAuth parameters");
-    }
-
-    console.log("Attempting token exchange with:", {
-      oauth_token: oauth_token.substring(0, 5) + '...', // Log partial token for security
-      oauth_token_secret: oauth_token_secret.substring(0, 5) + '...',
-      oauth_verifier: oauth_verifier.substring(0, 5) + '...'
-    });
-
-    // Verify Twitter API credentials are configured
-    if (!TWITTER_API_KEY || !TWITTER_API_SECRET) {
-      throw new Error("Twitter API credentials not configured");
-    }
-
     const client = new TwitterApi({
       appKey: TWITTER_API_KEY,
       appSecret: TWITTER_API_SECRET,
@@ -62,15 +46,7 @@ export const getAccessToken = async (
       accessSecret: oauth_token_secret,
     });
 
-    console.log("Client created, attempting login...");
-    
-    const loginResult = await client.login(oauth_verifier);
-    
-    if (!loginResult.accessToken || !loginResult.accessSecret) {
-      throw new Error("Invalid token response from Twitter API");
-    }
-
-    console.log("Token exchange successful for user:", loginResult.screenName);
+    const loginResult = await client.loginWithOAuth1(oauth_verifier);
 
     return {
       accessToken: loginResult.accessToken,
@@ -79,32 +55,11 @@ export const getAccessToken = async (
       screenName: loginResult.screenName,
     };
   } catch (error) {
-    console.error("Twitter token exchange failed:", {
-      error: error.message,
-      stack: error.stack,
-      apiCredentials: {
-        TWITTER_API_KEY: TWITTER_API_KEY ? "exists" : "missing",
-        TWITTER_API_SECRET: TWITTER_API_SECRET ? "exists" : "missing"
-      },
-      inputTokens: {
-        oauth_token: oauth_token ? "exists" : "missing",
-        oauth_token_secret: oauth_token_secret ? "exists" : "missing",
-        oauth_verifier: oauth_verifier ? "exists" : "missing"
-      }
-    });
-
-    // More specific error messages
-    if (error.message.includes("Invalid oauth_verifier")) {
-      throw new Error("Invalid verification code. Please try the authentication flow again.");
-    } else if (error.message.includes("Invalid oauth_token")) {
-      throw new Error("Session expired. Please restart the Twitter connection.");
-    } else if (error.message.includes("Could not authenticate you")) {
-      throw new Error("Twitter API authentication failed. Check your API credentials.");
-    }
-
-    throw new Error(`Failed to complete Twitter authentication: ${error.message}`);
+    console.error("Error getting Twitter access token:", error);
+    throw new Error("Failed to get Twitter access token");
   }
 };
+
 // Upload media to Twitter
 export const uploadMedia = async (client, mediaUrl) => {
   try {
