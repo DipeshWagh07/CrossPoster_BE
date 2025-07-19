@@ -38,13 +38,7 @@ export const getAccessToken = async (
   oauth_token_secret,
   oauth_verifier
 ) => {
-  
   try {
-
-      if (!oauth_token || !oauth_token_secret || !oauth_verifier) {
-      throw new Error("Missing required OAuth parameters");
-    }
-
     const client = new TwitterApi({
       appKey: TWITTER_API_KEY,
       appSecret: TWITTER_API_SECRET,
@@ -52,22 +46,20 @@ export const getAccessToken = async (
       accessSecret: oauth_token_secret,
     });
 
-     const { client: loggedClient, accessToken, accessSecret } = await client.login(oauth_verifier);
-
-    // Get user details
-    const { data: userObject } = await loggedClient.v2.me();
+    const loginResult = await client.login(oauth_verifier);
 
     return {
-      accessToken,
-      accessSecret,
-      userId: userObject.id,
-      screenName: userObject.username, // Note: v2 uses 'username' instead of 'screenName'
+      accessToken: loginResult.accessToken,
+      accessSecret: loginResult.accessSecret,
+      userId: loginResult.userId,
+      screenName: loginResult.screenName,
     };
   } catch (error) {
-    console.error("Detailed Twitter auth error:", error);
-    throw new Error(`Twitter authentication failed: ${error.message}`);
+    console.error("Error getting Twitter access token:", error);
+    throw new Error("Failed to get Twitter access token");
   }
 };
+
 // Upload media to Twitter
 export const uploadMedia = async (client, mediaUrl) => {
   try {
