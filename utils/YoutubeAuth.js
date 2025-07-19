@@ -18,7 +18,7 @@ export const getYouTubeAuthUrl = () => {
     'https://www.googleapis.com/auth/youtube.readonly'
   ];
 
-  return oauth2Client.generateAuthUrl({
+  return oauth2Client.hUrl({
     access_type: 'offline',
     scope: scopes,
     prompt: 'consent'
