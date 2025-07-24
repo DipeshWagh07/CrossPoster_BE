@@ -9,6 +9,8 @@ import FormData from "form-data";
 import { fileURLToPath } from "url";
 import { URLSearchParams } from "url";
 import path from "path";
+import { v2 as cloudinary } from 'cloudinary';
+
 
 import dotenv from "dotenv";
 dotenv.config();
@@ -70,6 +72,14 @@ import {
 dotenv.config();
 
 const app = express();
+
+// Configure Cloudinary globally (important!)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 
 app.use(express.json());
 app.use(bodyParser.json());
@@ -135,6 +145,9 @@ app.use((req, res, next) => {
   next();
 });
 app.use("/uploads", express.static("uploads"));
+app.post('/api/twitter/post', upload.single('image'),postTweet);
+
+
 
 // ============ AUTHENTICATION ROUTES ============
 
@@ -161,6 +174,8 @@ app.post("/youtube/channel-info", getYouTubeChannelInfoEndpoint);
 app.get("/auth/twitter", initializeAuth);
 app.get("/auth/twitter/callback", handleCallback); // This handles the redirect from Twitter
 app.post("/auth/twitter/callback", handleCallbackPost); // This handles POST requests if needed
+
+
 // ============ API ROUTES ============
 
 // Facebook API Routes
@@ -214,18 +229,6 @@ const generatePKCE = () => {
 
   return { verifier, challenge };
 };
-
-app.get("/terms", (req, res) => {
-  res.sendFile(path.join(__dirname, "terms.html"));
-});
-
-app.get("/privacy", (req, res) => {
-  res.sendFile(path.join(__dirname, "privacy.html"));
-});
-
-app.get("/tiktok-domain-verification", (req, res) => {
-  res.sendFile(path.join(__dirname, "tiktok-domain-verification.html"));
-});
 
 app.get("/auth/tiktok", (req, res) => {
   try {

@@ -2,9 +2,16 @@ import axios from "axios";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// Load environment variables
-dotenv.config();
+// 1. Properly configure environment variables
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load .env from root directory
+dotenv.config({ path: path.join(__dirname, '../../.env') });
+
 
 // Configure Cloudinary
 cloudinary.config({
@@ -24,20 +31,19 @@ export const uploadImage = async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Upload to Cloudinary
-    const result = await new Promise((resolve, reject) => {
-      cloudinary.uploader
-        .upload_stream(
-          {
-            resource_type: "auto",
-            folder: "instagram_posts", // Optional: organize your uploads
-          },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
-          }
-        )
-        .end(req.file.buffer);
+    console.log("Received file:", {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size
+    });
+
+    // Alternative upload method using base64
+    const b64 = Buffer.from(req.file.buffer).toString("base64");
+    const dataURI = "data:" + req.file.mimetype + ";base64," + b64;
+
+    const result = await cloudinary.uploader.upload(dataURI, {
+      resource_type: "auto",
+      folder: "instagram_posts"
     });
 
     res.json({
@@ -50,10 +56,14 @@ export const uploadImage = async (req, res) => {
     res.status(500).json({
       error: "Failed to upload image",
       details: error.message,
+      config: { // For debugging
+        hasCloudName: !!process.env.CLOUDINARY_CLOUD_NAME,
+        hasApiKey: !!process.env.CLOUDINARY_API_KEY,
+        hasApiSecret: !!process.env.CLOUDINARY_API_SECRET
+      }
     });
   }
 };
-
 export const createPost = async (req, res) => {
   try {
     const { pageAccessToken, instagramUserId, caption, imageUrl } = req.body;

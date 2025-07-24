@@ -2,6 +2,12 @@ import { TwitterApi } from "twitter-api-v2";
 import twitterXAuth, { getAccessToken } from "../utils/twitterXAuth.js";
 // Temporary storage for OAuth tokens (in production, use Redis or database)
 const oauthTokenCache = new Map();
+
+import multer from 'multer';
+
+// Configure multer for LinkedIn posts
+const upload = multer({ storage: multer.memoryStorage() });
+
 // Update initializeAuth function:
 export const initializeAuth = async (req, res) => {
   try {
@@ -193,53 +199,62 @@ export const checkConnectionStatus = async (req, res) => {
     });
   }
 };
-// Post a tweet
+// Post a tweet with image
 export const postTweet = async (req, res) => {
   try {
-    const { content, imageUrl, mediaUrls = [] } = req.body;
-    
-    // FIX: Get tokens from session properly
-    const { twitter_access_token, twitter_access_secret } = req.session;
-    
-    const allMediaUrls = imageUrl ? [imageUrl, ...mediaUrls] : mediaUrls;
-    
-    if (!twitter_access_token || !twitter_access_secret) {
-      return res.status(401).json({
-        success: false,
-        message: "Twitter account not connected. Please authenticate first.",
-      });
-    }
+    // Get content from form-data
+    const content = req.body.content;
+    const imageFile = req.file; // From multer
+
+    console.log('Received content:', content);
+    console.log('Received file:', imageFile ? imageFile.originalname : 'No file');
+
+    // Validate content
     if (!content || content.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: "Tweet content is required",
+        message: "Tweet content is required"
       });
     }
-    // Check tweet length (X allows up to 280 characters for text)
-    if (content.length > 280) {
-      return res.status(400).json({
-        success: false,
-        message: "Tweet content exceeds 280 character limit",
-      });
-    }
+
+    // Twitter client setup
     const client = new TwitterApi({
       appKey: process.env.TWITTER_API_KEY,
       appSecret: process.env.TWITTER_API_SECRET,
-      accessToken: twitter_access_token,
-      accessSecret: twitter_access_secret,
+      accessToken: req.session.twitter_access_token,
+      accessSecret: req.session.twitter_access_secret
     });
+
     let tweetData = { text: content };
-    // Handle media uploads if provided
-    if (allMediaUrls.length > 0) {
-      const mediaIds = await Promise.all(
-        allMediaUrls.map(async (url) => {
-          const mediaId = await twitterXAuth.uploadMedia(client, url);
-          return mediaId;
-        })
-      );
-      tweetData.media = { media_ids: mediaIds };
+
+    // Handle file upload if provided
+    if (imageFile) {
+      try {
+        console.log('Uploading media to Twitter...');
+        const mediaId = await client.v1.uploadMedia(imageFile.buffer, {
+          mimeType: imageFile.mimetype
+        });
+        console.log('Media uploaded with ID:', mediaId);
+        tweetData.media = { media_ids: [mediaId] };
+      } catch (mediaError) {
+        console.error('Media upload failed:', mediaError);
+        // Continue with text-only tweet
+        return res.json({
+          success: true,
+          message: "Tweet posted but media failed to upload",
+          data: {
+            tweetId: tweet.data.id,
+            text: tweet.data.text,
+            hasMedia: false,
+            mediaError: mediaError.message
+          }
+        });
+      }
     }
+
+    // Post the tweet
     const tweet = await client.v2.tweet(tweetData);
+    
     res.json({
       success: true,
       message: "Tweet posted successfully",
@@ -247,14 +262,16 @@ export const postTweet = async (req, res) => {
         tweetId: tweet.data.id,
         text: tweet.data.text,
         url: `https://twitter.com/user/status/${tweet.data.id}`,
-      },
+        hasMedia: !!tweetData.media
+      }
     });
+
   } catch (error) {
-    console.error("Twitter post error:", error);
+    console.error('Twitter post error:', error);
     res.status(500).json({
       success: false,
       message: "Failed to post tweet",
-      error: error.message,
+      error: error.message
     });
   }
 };

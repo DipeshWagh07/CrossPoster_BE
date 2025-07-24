@@ -10,9 +10,24 @@ import {
   getConnectionStatus,
   checkConnectionStatus
 } from '../controllers/twitterXController.js';
+import multer from 'multer';
 
 const router = express.Router();
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (validTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only images are allowed.'), false);
+    }
+  }
+});
 
 // Initialize Twitter OAuth authentication
 router.get('/auth', initializeAuth);
@@ -24,7 +39,7 @@ router.get('/callback', handleCallback);
 router.post('/callback', handleCallbackPost);
 
 // Post a single tweet
-router.post('/post', postTweet);
+router.post('/post', upload.single('image'), postTweet);
 
 // Post a thread (multiple connected tweets)
 router.post('/thread', postThread);

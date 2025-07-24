@@ -65,35 +65,38 @@ export const uploadMedia = async (client, mediaUrl) => {
   try {
     let mediaBuffer;
 
+    console.log(`Processing media from: ${mediaUrl}`);
+    
     if (mediaUrl.startsWith("http")) {
       // Download media from URL
+      console.log("Downloading media from URL");
       const response = await axios.get(mediaUrl, {
         responseType: "arraybuffer",
       });
       mediaBuffer = Buffer.from(response.data);
+    } else if (mediaUrl.startsWith("data:")) {
+      // Base64 data URL
+      console.log("Processing base64 media");
+      const base64Data = mediaUrl.split(",")[1];
+      mediaBuffer = Buffer.from(base64Data, "base64");
     } else {
-      // Assume it's a base64 string or local file path
-      if (mediaUrl.startsWith("data:")) {
-        // Base64 data URL
-        const base64Data = mediaUrl.split(",")[1];
-        mediaBuffer = Buffer.from(base64Data, "base64");
-      } else {
-        // Local file path
-        mediaBuffer = fs.readFileSync(mediaUrl);
-      }
+      // Assume it's a file path
+      console.log("Reading media from file system");
+      mediaBuffer = fs.readFileSync(mediaUrl);
     }
 
+    console.log("Uploading media to Twitter...");
     const mediaId = await client.v1.uploadMedia(mediaBuffer, {
       mimeType: getMediaMimeType(mediaUrl),
     });
-
+    
+    console.log(`Media uploaded successfully. ID: ${mediaId}`);
     return mediaId;
   } catch (error) {
     console.error("Error uploading media to Twitter:", error);
-    throw new Error("Failed to upload media to Twitter");
+    throw error;
   }
 };
-
 // Helper function to determine media MIME type
 export const getMediaMimeType = (url) => {
   const extension = url.split(".").pop().toLowerCase();

@@ -6,6 +6,10 @@ import {
   postToLinkedIn,
   generateState,
 } from "../utils/linkedinAuth.js";
+import multer from 'multer';
+
+// Configure multer for LinkedIn posts
+const upload = multer({ storage: multer.memoryStorage() });
 
 // GET route to start OAuth flow
 export const startLinkedInAuth = (req, res) => {
@@ -78,63 +82,159 @@ export const getLinkedInUserInfo = async (req, res) => {
 
 
 // Controller function to create a post on LinkedIn
-export const createLinkedInPost = async (req, res) => {
-  try {
-    const { accessToken, text, userUrn, imageUrl } = req.body;
+export const createLinkedInPost = [
+  upload.single('image'), // Add multer middleware
+  async (req, res) => {
+    try {
+      console.log('=== LINKEDIN POST DEBUG ===');
+      console.log('req.body:', req.body);
+      console.log('req.file:', req.file);
+      console.log('========================');
 
-    if (!accessToken || !userUrn) {
-      return res.status(400).json({ 
-        error: "Missing required parameters",
-        code: "MISSING_REQUIRED_FIELDS" 
+      const { accessToken, text, userUrn } = req.body;
+      const imageFile = req.file;
+
+      if (!accessToken || !userUrn) {
+        return res.status(400).json({ 
+          error: 'Missing required parameters',
+          received: { 
+            accessToken: !!accessToken, 
+            userUrn: !!userUrn,
+            hasFile: !!imageFile 
+          }
+        });
+      }
+
+      let postData;
+
+      if (imageFile) {
+        // Post with image
+        try {
+          const imageAsset = await uploadImageToLinkedIn(accessToken, imageFile.buffer, userUrn);
+
+          postData = {
+            author: userUrn,
+            lifecycleState: 'PUBLISHED',
+            specificContent: {
+              'com.linkedin.ugc.ShareContent': {
+                shareCommentary: {
+                  text: text || '',
+                },
+                shareMediaCategory: 'IMAGE',
+                media: [
+                  {
+                    status: 'READY',
+                    description: {
+                      text: 'Image description'
+                    },
+                    media: imageAsset,
+                    title: {
+                      text: 'Image'
+                    }
+                  }
+                ]
+              },
+            },
+            visibility: {
+              'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+            },
+          };
+        } catch (imageError) {
+          console.error('Failed to upload image, posting text only:', imageError);
+          // Fallback to text-only post
+          postData = {
+            author: userUrn,
+            lifecycleState: 'PUBLISHED',
+            specificContent: {
+              'com.linkedin.ugc.ShareContent': {
+                shareCommentary: { text },
+                shareMediaCategory: 'NONE',
+              },
+            },
+            visibility: {
+              'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+            },
+          };
+        }
+      } else {
+        // Text-only post
+        postData = {
+          author: userUrn,
+          lifecycleState: 'PUBLISHED',
+          specificContent: {
+            'com.linkedin.ugc.ShareContent': {
+              shareCommentary: { text },
+              shareMediaCategory: 'NONE',
+            },
+          },
+          visibility: {
+            'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+          },
+        };
+      }
+
+      const response = await axios.post(
+        'https://api.linkedin.com/v2/ugcPosts',
+        postData,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'X-Restli-Protocol-Version': '2.0.0',
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      res.json({ success: true, data: response.data });
+    } catch (error) {
+      console.error('Error posting to LinkedIn:', error.response?.data || error.message);
+      res.status(500).json({
+        error: 'Failed to post to LinkedIn',
+        details: error.response?.data || error.message,
       });
     }
+  }
+];
 
-    let imagePath = null;
-    if (imageUrl) {
-      try {
-        const imageResponse = await axios.get(imageUrl, {
-          responseType: "stream",
-        });
-
-        const tempPath = `uploads/temp-${Date.now()}.jpg`;
-        const writer = fs.createWriteStream(tempPath);
-        imageResponse.data.pipe(writer);
-
-        await new Promise((resolve, reject) => {
-          writer.on("finish", resolve);
-          writer.on("error", reject);
-        });
-
-        imagePath = tempPath;
-      } catch (downloadError) {
-        console.error("Failed to download image:", downloadError);
-      }
-    }
-
-    const linkedinResponse = await axios.post(
-      "http://localhost:8000/api/linkedin/post",
+// Add the uploadImageToLinkedIn function
+const uploadImageToLinkedIn = async (accessToken, imageBuffer, userUrn) => {
+  try {
+    // Step 1: Register the image upload
+    const registerResponse = await axios.post(
+      'https://api.linkedin.com/v2/assets?action=registerUpload',
       {
-        accessToken,
-        text,
-        userUrn,
-        imagePath,
+        registerUploadRequest: {
+          recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+          owner: userUrn,
+          serviceRelationships: [
+            {
+              relationshipType: 'OWNER',
+              identifier: 'urn:li:userGeneratedContent'
+            }
+          ]
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
       }
     );
 
-    if (imagePath && fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath);
-    }
+    const uploadUrl = registerResponse.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
+    const asset = registerResponse.data.value.asset;
 
-    res.json(linkedinResponse.data);
-  } catch (error) {
-    console.error(
-      "Error posting to LinkedIn:",
-      error.response?.data || error.message
-    );
-    res.status(500).json({
-      error: "Failed to post to LinkedIn",
-      details: error.response?.data || error.message,
-      code: error.response?.data?.code || "SERVER_ERROR",
+    // Step 2: Upload the actual image
+    await axios.post(uploadUrl, imageBuffer, {
+      headers: {
+        'Content-Type': 'application/octet-stream',
+      },
     });
+
+    return asset;
+  } catch (error) {
+    console.error('Error uploading image to LinkedIn:', error.response?.data || error.message);
+    throw error;
   }
 };

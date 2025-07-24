@@ -2,8 +2,12 @@ import express from 'express';
 import axios from 'axios';
 import fs from 'fs';
 import FormData from 'form-data';
+import multer from 'multer';
+const upload = multer({ storage: multer.memoryStorage() });
+
 
 const router = express.Router();
+
 
 // Get LinkedIn user info
 router.post('/userinfo', async (req, res) => {
@@ -23,66 +27,28 @@ router.post('/userinfo', async (req, res) => {
   }
 });
 
-// Helper function to upload image to LinkedIn
-const uploadImageToLinkedIn = async (accessToken, imagePath, userUrn) => {
-  try {
-    // Step 1: Register the image upload
-    const registerResponse = await axios.post(
-      'https://api.linkedin.com/v2/assets?action=registerUpload',
-      {
-        registerUploadRequest: {
-          recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
-          owner: userUrn,
-          serviceRelationships: [
-            {
-              relationshipType: 'OWNER',
-              identifier: 'urn:li:userGeneratedContent'
-            }
-          ]
-        }
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const uploadUrl = registerResponse.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
-    const asset = registerResponse.data.value.asset;
-
-    // Step 2: Upload the actual image
-    const imageBuffer = fs.readFileSync(imagePath);
-    
-    await axios.post(uploadUrl, imageBuffer, {
-      headers: {
-        'Content-Type': 'application/octet-stream',
-      },
-    });
-
-    return asset;
-  } catch (error) {
-    console.error('Error uploading image to LinkedIn:', error.response?.data || error.message);
-    throw error;
-  }
-};
-
 // Post to LinkedIn endpoint with image support
-router.post('/post', async (req, res) => {
+router.post('/post', upload.single('image'), async (req, res) => {
   try {
-    const { accessToken, text, userUrn, imagePath } = req.body;
+    // With multer, form fields should be in req.body
+    console.log('req.body:', req.body); // Debug line
+    console.log('req.file:', req.file); // Debug line
+    
+    const { accessToken, text, userUrn } = req.body;
+    const imageFile = req.file;
 
     if (!accessToken || !userUrn) {
-      return res.status(400).json({ error: 'Missing required parameters' });
+      return res.status(400).json({ 
+        error: 'Missing required parameters',
+        received: { accessToken: !!accessToken, userUrn: !!userUrn }
+      });
     }
-
     let postData;
 
-    if (imagePath) {
+    if (imageFile) {
       // Post with image
       try {
-        const imageAsset = await uploadImageToLinkedIn(accessToken, imagePath, userUrn);
+        const imageAsset = await uploadImageToLinkedIn(accessToken, imageFile.buffer, userUrn);
 
         postData = {
           author: userUrn,
