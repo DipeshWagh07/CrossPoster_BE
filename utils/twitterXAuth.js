@@ -4,7 +4,7 @@ import fs from "fs";
 
 const TWITTER_API_KEY = "SbR5iyyJcLPoZP5nx27gWAqBo";
 const TWITTER_API_SECRET = "59nbvNET1M2cWuztQ02gR6FnJcpcNC7ZWSHDTe9QcoQfRh3XGE";
-const redirectUri = "http://localhost:8000/auth/twitter/callback";
+const redirectUri = "https://crossposter-be.onrender.com/auth/twitter";
 
 // Get OAuth authentication URL
 export const getAuthUrl = async () => {
