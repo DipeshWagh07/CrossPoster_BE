@@ -46,14 +46,14 @@ export const handleCallback = async (req, res) => {
   if (denied) {
     console.log("User denied Twitter authorization");
     return res.redirect(
-      `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Authorization denied")}`
+      `https://cross-poster-fe.vercel.app/auth/twitter/callback?error=${encodeURIComponent("Authorization denied")}`
     );
   }
 
   if (!oauth_token || !oauth_verifier) {
     console.log("Missing OAuth parameters:", { oauth_token, oauth_verifier });
     return res.redirect(
-      `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Missing OAuth parameters")}`
+      `https://cross-poster-fe.vercel.app/auth/twitter/callback?error=${encodeURIComponent("Missing OAuth parameters")}`
     );
   }
 
@@ -75,7 +75,7 @@ export const handleCallback = async (req, res) => {
     if (!oauth_token_secret) {
       console.log("OAuth session expired or missing from both session and cache");
       return res.redirect(
-        `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Session expired. Please try again.")}`
+        `https://cross-poster-fe.vercel.app/auth/twitter/callback?error=${encodeURIComponent("Session expired. Please try again.")}`
       );
     }
 
@@ -83,7 +83,7 @@ export const handleCallback = async (req, res) => {
     if (req.session.oauth_token && req.session.oauth_token !== oauth_token) {
       console.log("OAuth token mismatch");
       return res.redirect(
-        `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Invalid OAuth token")}`
+        `https://cross-poster-fe.vercel.app/auth/twitter/callback?error=${encodeURIComponent("Invalid OAuth token")}`
       );
     }
 
@@ -102,7 +102,7 @@ export const handleCallback = async (req, res) => {
     oauthTokenCache.delete(oauth_token);
 
     // Redirect with success and tokens
-    const redirectUrl = `http://localhost:3000/auth/twitter/callback?success=true&access_token=${encodeURIComponent(accessToken)}&access_secret=${encodeURIComponent(accessSecret)}`;
+    const redirectUrl = `https://cross-poster-fe.vercel.app/auth/twitter/callback?success=true&access_token=${encodeURIComponent(accessToken)}&access_secret=${encodeURIComponent(accessSecret)}`;
     console.log("Redirecting to:", redirectUrl);
     res.redirect(redirectUrl);
 
@@ -111,7 +111,7 @@ export const handleCallback = async (req, res) => {
     // Clean up cache on error
     oauthTokenCache.delete(oauth_token);
     res.redirect(
-      `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent(error.message)}`
+      `https://cross-poster-fe.vercel.app/auth/twitter/callback?error=${encodeURIComponent(error.message)}`
     );
   }
 };

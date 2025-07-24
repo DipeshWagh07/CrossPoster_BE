@@ -101,7 +101,7 @@ app.use(
 
 app.use(
   cors({
-    origin: ["https://crossposter-be.onrender.com", "http://localhost:3000"],
+    origin: ["https://crossposter-be.onrender.com", "https://cross-poster-fe.vercel.app"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-open-id"],
