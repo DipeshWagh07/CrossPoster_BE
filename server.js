@@ -174,7 +174,13 @@ app.post("/youtube/channel-info", getYouTubeChannelInfoEndpoint);
 app.get("/auth/twitter", initializeAuth);
 app.get("/auth/twitter/callback", handleCallback); // This handles the redirect from Twitter
 app.post("/auth/twitter/callback", handleCallbackPost); // This handles POST requests if needed
-
+try {
+  // Your Twitter API call
+} catch (error) {
+  console.log('Twitter API Error Details:', error.response?.data);
+  console.log('Twitter API Status:', error.response?.status);
+  console.log('Twitter API Headers:', error.response?.headers);
+}
 
 // ============ API ROUTES ============
 

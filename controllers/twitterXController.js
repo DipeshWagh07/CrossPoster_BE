@@ -1,5 +1,11 @@
 import { TwitterApi } from "twitter-api-v2";
 import twitterXAuth, { getAccessToken } from "../utils/twitterXAuth.js";
+import { getAuthUrl } from "../utils/twitterXAuth.js";
+import dotenv from 'dotenv';
+dotenv.config();
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+
 // Temporary storage for OAuth tokens (in production, use Redis or database)
 const oauthTokenCache = new Map();
 
@@ -11,9 +17,15 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Update initializeAuth function:
 export const initializeAuth = async (req, res) => {
   try {
-    const { authUrl, oauth_token, oauth_token_secret } =
-      await twitterXAuth.getAuthUrl();
-    // Store tokens in both session and cache
+    // Verify Twitter config first
+    if (!process.env.TWITTER_API_KEY || !process.env.TWITTER_API_SECRET) {
+      throw new Error("Twitter API credentials not configured");
+    }
+
+    // Get authentication URL
+    const { authUrl, oauth_token, oauth_token_secret } = await getAuthUrl();
+    
+    // Store tokens in session
     req.session.oauth_token = oauth_token;
     req.session.oauth_token_secret = oauth_token_secret;
     
@@ -40,78 +52,63 @@ export const initializeAuth = async (req, res) => {
 };
 // Update handleCallback function:
 export const handleCallback = async (req, res) => {
-  console.log("Twitter callback received:", req.query);
   const { oauth_token, oauth_verifier, denied } = req.query;
-  // Handle user denial
+  
+  // 1. Handle user denial case
   if (denied) {
-    console.log("User denied Twitter authorization");
-    return res.redirect(
-      `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Authorization denied")}`
-    );
+    return res.redirect(`${process.env.FRONTEND_URL}/twitter-callback?error=user_denied`);
   }
 
+  // 2. Validate required parameters
   if (!oauth_token || !oauth_verifier) {
-    console.log("Missing OAuth parameters:", { oauth_token, oauth_verifier });
-    return res.redirect(
-      `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Missing OAuth parameters")}`
-    );
+    console.error('Missing OAuth parameters:', req.query);
+    return res.redirect(`${process.env.FRONTEND_URL}/twitter-callback?error=missing_parameters`);
   }
 
   try {
-    // Try to get oauth_token_secret from session first
-    let oauth_token_secret = req.session.oauth_token_secret;
-    
-    // If not in session, try cache
-    if (!oauth_token_secret) {
-      const cachedData = oauthTokenCache.get(oauth_token);
-      if (cachedData) {
-        oauth_token_secret = cachedData.oauth_token_secret;
-        console.log("Retrieved oauth_token_secret from cache");
-      }
-    } else {
-      console.log("Retrieved oauth_token_secret from session");
+    // 3. Retrieve the token secret from session or cache
+    const tokenSecret = req.session.oauth_token_secret || 
+                       oauthTokenCache.get(oauth_token)?.oauth_token_secret;
+
+    if (!tokenSecret) {
+      console.error('No matching token secret found for token:', oauth_token);
+      return res.redirect(`${process.env.FRONTEND_URL}/twitter-callback?error=invalid_session`);
     }
 
-    if (!oauth_token_secret) {
-      console.log("OAuth session expired or missing from both session and cache");
-      return res.redirect(
-        `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Session expired. Please try again.")}`
-      );
-    }
+    // 4. Exchange for access tokens
+    const { accessToken, accessSecret } = await twitterXAuth.getAccessToken(
+      oauth_token,
+      tokenSecret,
+      oauth_verifier
+    );
 
-    // Verify that the oauth_token matches (if we have it in session)
-    if (req.session.oauth_token && req.session.oauth_token !== oauth_token) {
-      console.log("OAuth token mismatch");
-      return res.redirect(
-        `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent("Invalid OAuth token")}`
-      );
-    }
-
-    console.log("Getting access token...");
-    const { accessToken, accessSecret, userId, screenName } =
-      await getAccessToken(oauth_token, oauth_token_secret, oauth_verifier);
-    console.log("Access token obtained successfully");
-    // Store tokens in session
+    // 5. Store the final tokens
     req.session.twitter_access_token = accessToken;
     req.session.twitter_access_secret = accessSecret;
-    req.session.twitter_user_id = userId;
-    req.session.twitter_screen_name = screenName;
-    // Clear OAuth tokens from both session and cache
-    delete req.session.oauth_token;
-    delete req.session.oauth_token_secret;
-    oauthTokenCache.delete(oauth_token);
 
-    // Redirect with success and tokens
-    const redirectUrl = `http://localhost:3000/auth/twitter/callback?success=true&access_token=${encodeURIComponent(accessToken)}&access_secret=${encodeURIComponent(accessSecret)}`;
-    console.log("Redirecting to:", redirectUrl);
-    res.redirect(redirectUrl);
+    // 6. Redirect to frontend with success
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/twitter-callback?` +
+      `success=true&` +
+      `access_token=${encodeURIComponent(accessToken)}&` +
+      `access_secret=${encodeURIComponent(accessSecret)}`
+    );
 
   } catch (error) {
-    console.error("Twitter callback error:", error);
-    // Clean up cache on error
-    oauthTokenCache.delete(oauth_token);
-    res.redirect(
-      `http://localhost:3000/auth/twitter/callback?error=${encodeURIComponent(error.message)}`
+    console.error('Token exchange failed:', {
+      error: error.message,
+      stack: error.stack,
+      request: {
+        oauth_token,
+        has_verifier: !!oauth_verifier,
+        session_has_token_secret: !!req.session.oauth_token_secret
+      }
+    });
+    
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/twitter-callback?` +
+      `error=token_exchange_failed&` +
+      `message=${encodeURIComponent(error.message)}`
     );
   }
 };
