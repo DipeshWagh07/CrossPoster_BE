@@ -186,6 +186,30 @@ try {
   console.log('Twitter API Headers:', error.response?.headers);
 }
 
+// Instead of redirecting directly, return the auth URL
+app.get('/auth/twitter', async (req, res) => {
+  try {
+    console.log('=== Getting Twitter Auth URL ===');
+    
+    // Generate the Twitter auth URL (your existing logic)
+    const authUrl = await getAuthUrl(); // Your existing function
+    
+    // Return the URL to frontend instead of redirecting
+    res.json({ 
+      success: true,
+      authUrl: authUrl 
+    });
+    
+  } catch (error) {
+    console.error('Twitter auth error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to generate Twitter authentication URL',
+      message: error.message 
+    });
+  }
+});
+
 // ============ API ROUTES ============
 
 // Facebook API Routes
