@@ -3,74 +3,87 @@ import axios from "axios";
 import fs from "fs";
 import dotenv from "dotenv";
 dotenv.config();
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
-export const getAuthUrl = async () => {
+const client = new TwitterApi({
+  appKey: process.env.TWITTER_API_KEY,
+  appSecret: process.env.TWITTER_API_SECRET,
+});
+
+export const getAuthUrl = async (customCallbackUrl = null) => {
   try {
-    const client = new TwitterApi({
-      appKey: process.env.TWITTER_API_KEY,
-      appSecret: process.env.TWITTER_API_SECRET,
-    });
-
-    // Use environment variable for redirect URI
-const redirectUri = process.env.TWITTER_REDIRECT_URI || `${process.env.BACKEND_URL}/auth/twitter/callback`;
+    console.log('=== Getting Twitter Auth URL ===');
     
-    const authLink = await client.generateAuthLink(redirectUri, {
-      linkMode: "authorize",
+    // Use custom callback URL or construct from environment
+    const callbackUrl = customCallbackUrl || `${BACKEND_URL}/auth/twitter/callback`;
+    
+    console.log('Using callback URL:', callbackUrl);
+    console.log('API Key present:', !!process.env.TWITTER_API_KEY);
+    console.log('API Secret present:', !!process.env.TWITTER_API_SECRET);
+    
+    // Generate OAuth URL
+    const authLink = await client.generateAuthLink(callbackUrl, {
+      linkMode: 'authorize', // or 'authenticate' for auto-approval for previously authorized users
     });
-
+    
+    console.log('Auth link generated successfully');
+    
     return {
       authUrl: authLink.url,
       oauth_token: authLink.oauth_token,
       oauth_token_secret: authLink.oauth_token_secret,
     };
   } catch (error) {
-    console.error("Detailed Twitter auth error:", {
-      message: error.message,
-      code: error.code,
-      data: error.data,
-      stack: error.stack
-    });
+    console.error('=== Twitter Auth URL Generation Error ===');
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    console.error('Error data:', error.data);
+    console.error('Stack trace:', error.stack);
+    
     throw new Error(`Failed to generate Twitter authentication URL: ${error.message}`);
   }
 };
-// Exchange OAuth verifier for access tokens
-// utils/twitterXAuth.js
 
 export const getAccessToken = async (oauth_token, oauth_token_secret, oauth_verifier) => {
   try {
-    console.log('Attempting token exchange with:', {
-      oauth_token: oauth_token?.substring(0, 5) + '...',
-      has_secret: !!oauth_token_secret,
-      has_verifier: !!oauth_verifier
+    console.log('=== Getting Access Token ===');
+    console.log('Token details:', {
+      oauth_token: oauth_token?.substring(0, 10) + '...',
+      oauth_token_secret: oauth_token_secret?.substring(0, 10) + '...',
+      oauth_verifier: oauth_verifier?.substring(0, 10) + '...',
     });
-
-    const client = new TwitterApi({
+    
+    // Create client with request tokens
+    const tempClient = new TwitterApi({
       appKey: process.env.TWITTER_API_KEY,
       appSecret: process.env.TWITTER_API_SECRET,
       accessToken: oauth_token,
       accessSecret: oauth_token_secret,
     });
-
-    const { 
-      accessToken, 
-      accessSecret, 
-      userId, 
-      screenName 
-    } = await client.login(oauth_verifier);
-
-    console.log('Token exchange successful for user:', screenName);
     
-    return { accessToken, accessSecret, userId, screenName };
+    // Exchange for access tokens
+    const loginResult = await tempClient.login(oauth_verifier);
     
-  } catch (error) {
-    console.error('Detailed token exchange error:', {
-      message: error.message,
-      code: error.code,
-      twitterData: error.data,
-      stack: error.stack
+    console.log('Access token exchange successful');
+    console.log('User details:', {
+      userId: loginResult.userId,
+      screenName: loginResult.screenName,
     });
     
-    throw new Error(`Twitter token exchange failed: ${error.message}`);
+    return {
+      accessToken: loginResult.accessToken,
+      accessSecret: loginResult.accessSecret,
+      userId: loginResult.userId,
+      screenName: loginResult.screenName,
+    };
+  } catch (error) {
+    console.error('=== Access Token Exchange Error ===');
+    console.error('Error message:', error.message);
+    console.error('Error code:', error.code);
+    console.error('Error data:', error.data);
+    console.error('Stack trace:', error.stack);
+    
+    throw new Error(`Failed to exchange OAuth tokens for access tokens: ${error.message}`);
   }
 };
 // Upload media to Twitter

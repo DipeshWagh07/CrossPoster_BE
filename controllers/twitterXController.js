@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
+
 
 // Temporary storage for OAuth tokens (in production, use Redis or database)
 const oauthTokenCache = new Map();
@@ -14,16 +16,37 @@ import multer from 'multer';
 // Configure multer for LinkedIn posts
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Update initializeAuth function:
 export const initializeAuth = async (req, res) => {
   try {
+    console.log('=== Twitter Auth Initialization ===');
+    console.log('Environment check:', {
+      NODE_ENV: process.env.NODE_ENV,
+      FRONTEND_URL: process.env.FRONTEND_URL,
+      BACKEND_URL: process.env.BACKEND_URL,
+      HAS_TWITTER_API_KEY: !!process.env.TWITTER_API_KEY,
+      HAS_TWITTER_API_SECRET: !!process.env.TWITTER_API_SECRET,
+      TWITTER_API_KEY_LENGTH: process.env.TWITTER_API_KEY?.length || 0,
+      TWITTER_API_SECRET_LENGTH: process.env.TWITTER_API_SECRET?.length || 0
+    });
+
     // Verify Twitter config first
     if (!process.env.TWITTER_API_KEY || !process.env.TWITTER_API_SECRET) {
       throw new Error("Twitter API credentials not configured");
     }
 
-    // Get authentication URL
-    const { authUrl, oauth_token, oauth_token_secret } = await getAuthUrl();
+    // Log the callback URL that will be used
+    const callbackUrl = `${BACKEND_URL}/auth/twitter/callback`;
+    console.log('Callback URL being used:', callbackUrl);
+
+    // Get authentication URL with explicit callback
+    const authData = await getAuthUrl(callbackUrl);
+    const { authUrl, oauth_token, oauth_token_secret } = authData;
+    
+    console.log('Auth URL generated successfully:', {
+      oauth_token: oauth_token?.substring(0, 10) + '...',
+      oauth_token_secret: oauth_token_secret?.substring(0, 10) + '...',
+      authUrl: authUrl?.substring(0, 50) + '...'
+    });
     
     // Store tokens in session
     req.session.oauth_token = oauth_token;
@@ -42,27 +65,51 @@ export const initializeAuth = async (req, res) => {
       message: "Please authorize the application",
     });
   } catch (error) {
-    console.error("Twitter auth initialization error:", error);
+    console.error("=== Twitter Auth Initialization Error ===");
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    console.error("Error code:", error.code);
+    console.error("Error data:", error.data);
+    
     res.status(500).json({
       success: false,
       message: "Failed to initialize Twitter authentication",
       error: error.message,
+      ...(process.env.NODE_ENV === 'development' && { 
+        stack: error.stack,
+        data: error.data 
+      })
     });
   }
 };
-// Update handleCallback function:
+
+// Update handleCallback function with better logging:
 export const handleCallback = async (req, res) => {
   const { oauth_token, oauth_verifier, denied } = req.query;
   
+  console.log('=== Twitter Callback Received ===');
+  console.log('Query params:', {
+    oauth_token: oauth_token?.substring(0, 10) + '...',
+    oauth_verifier: oauth_verifier?.substring(0, 10) + '...',
+    denied: denied
+  });
+  console.log('Session data:', {
+    sessionId: req.sessionID,
+    hasOAuthToken: !!req.session.oauth_token,
+    hasOAuthSecret: !!req.session.oauth_token_secret,
+    hasAccessToken: !!req.session.twitter_access_token
+  });
+  
   // 1. Handle user denial case
   if (denied) {
-    return res.redirect(`${process.env.FRONTEND_URL}/twitter-callback?error=user_denied`);
+    console.log('User denied authorization');
+    return res.redirect(`${FRONTEND_URL}/twitter-callback?error=user_denied`);
   }
 
   // 2. Validate required parameters
   if (!oauth_token || !oauth_verifier) {
     console.error('Missing OAuth parameters:', req.query);
-    return res.redirect(`${process.env.FRONTEND_URL}/twitter-callback?error=missing_parameters`);
+    return res.redirect(`${FRONTEND_URL}/twitter-callback?error=missing_parameters`);
   }
 
   try {
@@ -70,48 +117,67 @@ export const handleCallback = async (req, res) => {
     const tokenSecret = req.session.oauth_token_secret || 
                        oauthTokenCache.get(oauth_token)?.oauth_token_secret;
 
+    console.log('Token secret lookup:', {
+      fromSession: !!req.session.oauth_token_secret,
+      fromCache: !!oauthTokenCache.get(oauth_token)?.oauth_token_secret,
+      found: !!tokenSecret
+    });
+
     if (!tokenSecret) {
       console.error('No matching token secret found for token:', oauth_token);
-      return res.redirect(`${process.env.FRONTEND_URL}/twitter-callback?error=invalid_session`);
+      return res.redirect(`${FRONTEND_URL}/twitter-callback?error=invalid_session`);
     }
 
     // 4. Exchange for access tokens
+    console.log('Attempting token exchange...');
     const { accessToken, accessSecret } = await twitterXAuth.getAccessToken(
       oauth_token,
       tokenSecret,
       oauth_verifier
     );
 
+    console.log('Token exchange successful');
+
     // 5. Store the final tokens
     req.session.twitter_access_token = accessToken;
     req.session.twitter_access_secret = accessSecret;
 
+    // Clean up temporary tokens
+    delete req.session.oauth_token;
+    delete req.session.oauth_token_secret;
+    oauthTokenCache.delete(oauth_token);
+
     // 6. Redirect to frontend with success
     return res.redirect(
-      `${process.env.FRONTEND_URL}/twitter-callback?` +
+      `${FRONTEND_URL}/twitter-callback?` +
       `success=true&` +
       `access_token=${encodeURIComponent(accessToken)}&` +
       `access_secret=${encodeURIComponent(accessSecret)}`
     );
 
   } catch (error) {
-    console.error('Token exchange failed:', {
-      error: error.message,
-      stack: error.stack,
-      request: {
-        oauth_token,
-        has_verifier: !!oauth_verifier,
-        session_has_token_secret: !!req.session.oauth_token_secret
-      }
+    console.error('=== Token Exchange Failed ===');
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      data: error.data,
+      stack: error.stack
+    });
+    console.error('Request details:', {
+      oauth_token,
+      has_verifier: !!oauth_verifier,
+      session_has_token_secret: !!req.session.oauth_token_secret,
+      cache_has_token_secret: !!oauthTokenCache.get(oauth_token)?.oauth_token_secret
     });
     
     return res.redirect(
-      `${process.env.FRONTEND_URL}/twitter-callback?` +
+      `${FRONTEND_URL}/twitter-callback?` +
       `error=token_exchange_failed&` +
       `message=${encodeURIComponent(error.message)}`
     );
   }
 };
+
 // Alternative POST endpoint for handling callback (if you prefer POST)
 export const handleCallbackPost = async (req, res) => {
   const { oauth_token, oauth_verifier } = req.body;
