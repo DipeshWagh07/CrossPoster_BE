@@ -10,15 +10,22 @@ import { fileURLToPath } from "url";
 import { URLSearchParams } from "url";
 import path from "path";
 import { v2 as cloudinary } from 'cloudinary';
+
+
 import dotenv from "dotenv";
 dotenv.config();
-
-// Controller imports
 import {
   upload,
   uploadImage,
   createPost,
 } from "./controllers/instagramController.js";
+
+// Route imports
+import facebookRoutes from "./routes/facebook.js";
+import linkedinRoutes from "./routes/linkedIn.js";
+import twitterRoutes from "./routes/twitterX.js";
+
+// Controller imports
 import {
   startLinkedInAuth,
   linkedInCallback,
@@ -53,65 +60,55 @@ import {
   disconnect,
 } from "./controllers/twitterXController.js";
 import twitterXAuth from "./utils/twitterXAuth.js";
+
 import {
   uploadTikTokVideo,
   createTikTokPost,
 } from "./controllers/tiktokController.js";
 
-// Route imports
-import facebookRoutes from "./routes/facebook.js";
-import linkedinRoutes from "./routes/linkedIn.js";
-import twitterRoutes from "./routes/twitterX.js";
+// In-memory store for PKCE verifiers (for demo purposes)
+// In production, consider a short-lived database cache
 
-// Configure Cloudinary
+dotenv.config();
+
+const app = express();
+
+// Configure Cloudinary globally (important!)
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const app = express();
 
-// CORS Configuration
-const allowedOrigins = [
-  "https://cross-poster-fe.vercel.app",
-  "http://localhost:3000"
-];
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-open-id"],
-}));
-
-// Session configuration
+app.use(express.json());
+app.use(bodyParser.json());
+// Update your session configuration
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "your-secret-key",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production", // Use secure cookies in production
+      secure: false, // change to true in production with HTTPS
       httpOnly: true,
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24,
     },
-    name: "crossposter.session",
+
+    name: "tiktok.oauth.session",
   })
 );
 
-app.use(express.json());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(
+  cors({
+    origin: ["https://postingapp-g0p1.onrender.com", "http://localhost:3000"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-open-id"],
+  })
+);
+
+const port = process.env.PORT || 8000;
 
 // Fix for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -123,78 +120,103 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
-});
-
-const uploadMiddleware = multer({ storage });
-
-app.use("/uploads", express.static(uploadsDir));
-
-// Debug middleware for Twitter routes
 app.use((req, res, next) => {
   if (req.url.includes("twitter")) {
     console.log(`${req.method} ${req.url}`, req.query);
-    console.log("Session:", {
-      oauth_token: req.session.oauth_token ? "Present" : "Missing",
-      oauth_token_secret: req.session.oauth_token_secret ? "Present" : "Missing",
-      twitter_access_token: req.session.twitter_access_token ? "Present" : "Missing",
-    });
   }
   next();
 });
 
-// ============ ROUTES ============
-
-// Health check
-app.get("/", (req, res) => {
-  res.send("✅ CrossPoster Backend is Live!");
+app.use((req, res, next) => {
+  if (req.url.includes("twitter")) {
+    console.log(`${req.method} ${req.url}`, {
+      sessionId: req.sessionID,
+      session: {
+        oauth_token: req.session.oauth_token ? "Present" : "Missing",
+        oauth_token_secret: req.session.oauth_token_secret
+          ? "Present"
+          : "Missing",
+        twitter_access_token: req.session.twitter_access_token
+          ? "Present"
+          : "Missing",
+      },
+    });
+  }
+  next();
 });
+app.use("/uploads", express.static("uploads"));
+app.post('/api/twitter/post', upload.single('image'),postTweet);
 
-// Twitter Routes
-app.post('/api/twitter/post', uploadMiddleware.single('image'), postTweet);
-app.get("/auth/twitter", initializeAuth);
-app.get("/auth/twitter/callback", handleCallback);
-app.post("/auth/twitter/callback", handleCallbackPost);
 
-// LinkedIn Routes
+
+// ============ AUTHENTICATION ROUTES ============
+
+// LinkedIn Auth Routes
 app.get("/auth/linkedin", startLinkedInAuth);
 app.get("/auth/linkedin/callback", linkedInCallback);
 app.post("/auth/linkedin/exchange", handleCodeExchange);
 app.post("/linkedin/userinfo", getLinkedInUserInfo);
 app.post("/api/post-to-linkedin", createLinkedInPost);
 
-// Facebook Routes
-app.get("/auth/facebook", startFacebookAuth);
-app.get("/auth/facebook/callback", facebookCallback);
-app.post("/auth/facebook/exchange", handleFacebookCodeExchange);
+// Facebook Auth Routes
+app.get("/auth/facebook", startFacebookAuth); // Server-side OAuth start
+app.get("/auth/facebook/callback", facebookCallback); // Server-side OAuth callback
+app.post("/auth/facebook/exchange", handleFacebookCodeExchange); // Client-side code exchange
 app.get("/api/facebook/page-tokens", getFacebookPageTokens);
+
+// YouTube Auth Routes
+app.get("/auth/youtube", startYouTubeAuth);
+app.get("/auth/youtube/callback", youtubeCallback);
+app.post("/auth/youtube/exchange", handleYouTubeCodeExchange);
+app.post("/youtube/channel-info", getYouTubeChannelInfoEndpoint);
+
+// Twitter X Auth Routes
+app.get("/auth/twitter", initializeAuth);
+app.get("/auth/twitter/callback", handleCallback); // This handles the redirect from Twitter
+app.post("/auth/twitter/callback", handleCallbackPost); // This handles POST requests if needed
+try {
+  // Your Twitter API call
+} catch (error) {
+  console.log('Twitter API Error Details:', error.response?.data);
+  console.log('Twitter API Status:', error.response?.status);
+  console.log('Twitter API Headers:', error.response?.headers);
+}
+
+// ============ API ROUTES ============
+
+// Facebook API Routes
 app.post(
   "/api/facebook/create-post",
-  uploadMiddleware.single("file"),
+  upload.single("file"),
   createFacebookPostWithFile
 );
 app.post("/api/facebook/pages", getFacebookUserPages);
 app.post("/api/facebook/debug", debugFacebookPageAccess);
 
-// YouTube Routes
-app.get("/auth/youtube", startYouTubeAuth);
-app.get("/auth/youtube/callback", youtubeCallback);
-app.post("/auth/youtube/exchange", handleYouTubeCodeExchange);
-app.post("/youtube/channel-info", getYouTubeChannelInfoEndpoint);
-app.post("/api/upload-youtube-video", uploadVideoEndpoint);
+// Use route files
+app.use("/api/facebook", facebookRoutes);
+app.use("/api/linkedin", linkedinRoutes);
+app.use("/api/twitter", twitterRoutes);
 
-// Instagram Routes
-app.post("/api/instagram/upload", uploadMiddleware.single("file"), uploadImage);
+// Instagram routes
+app.post("/api/instagram/upload", upload.single("file"), uploadImage);
 app.post("/api/instagram/post", createPost);
 
-// TikTok Routes
+app.post("/api/upload-youtube-video", uploadVideoEndpoint);
+
+app.post(
+  "/api/tiktok/upload",
+  multer({ storage: multer.memoryStorage() }).single("file"),
+  uploadTikTokVideo
+);
+
+// ===== TikTok OAuth Routes =====
+
+import crypto from "crypto";
+// PKCE store
 const pkceStore = new Map();
+
+// Generate PKCE verifier and challenge
 const generatePKCE = () => {
   const verifier = crypto
     .randomBytes(32)
@@ -221,15 +243,17 @@ app.get("/auth/tiktok", (req, res) => {
 
     pkceStore.set(state, verifier);
 
-    const authUrl = `https://www.tiktok.com/v2/auth/authorize?${new URLSearchParams({
-      client_key: process.env.TIKTOK_CLIENT_KEY,
-      scope: "video.upload",
-      response_type: "code",
-      redirect_uri: process.env.TIKTOK_REDIRECT_URI || "https://crossposter-be.onrender.com/auth/tiktok/callback",
-      state: state,
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-    })}`;
+    const authUrl = `https://www.tiktok.com/v2/auth/authorize?${new URLSearchParams(
+      {
+        client_key: process.env.TIKTOK_CLIENT_KEY,
+        scope: "video.upload",
+        response_type: "code",
+        redirect_uri: process.env.TIKTOK_REDIRECT_URI,
+        state: state,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+      }
+    )}`;
 
     res.json({ authUrl, state });
   } catch (error) {
@@ -240,17 +264,22 @@ app.get("/auth/tiktok", (req, res) => {
 
 app.get("/auth/tiktok/callback", async (req, res) => {
   try {
+    console.log("TikTok callback received"); // Debug log
+
     const { code, state, error } = req.query;
+    console.log("Callback params:", { code, state, error }); // Debug log
 
     if (error) {
       throw new Error(`TikTok error: ${error}`);
     }
 
+    // Verify state
     const verifier = pkceStore.get(state);
     if (!verifier) {
       throw new Error("Invalid or expired state parameter");
     }
 
+    // Exchange code for tokens
     const tokenResponse = await axios.post(
       "https://open.tiktokapis.com/v2/oauth/token",
       new URLSearchParams({
@@ -258,7 +287,7 @@ app.get("/auth/tiktok/callback", async (req, res) => {
         client_secret: process.env.TIKTOK_CLIENT_SECRET,
         code,
         grant_type: "authorization_code",
-        redirect_uri: process.env.TIKTOK_REDIRECT_URI || "https://crossposter-be.onrender.com/auth/tiktok/callback",
+        redirect_uri: process.env.TIKTOK_REDIRECT_URI,
         code_verifier: verifier,
       }),
       {
@@ -269,22 +298,29 @@ app.get("/auth/tiktok/callback", async (req, res) => {
       }
     );
 
+    console.log("Token response:", tokenResponse.data); // Debug log
+
     const { access_token, open_id } = tokenResponse.data;
 
+    // Successful redirect to frontend
     res.redirect(
-      `https://cross-poster-fe.vercel.app/tiktok-callback?access_token=${access_token}&open_id=${open_id}`
+      `${process.env.FRONTEND_URL}/tiktok-callback?access_token=${access_token}&open_id=${open_id}`
     );
   } catch (error) {
-    console.error("TikTok callback error:", error.response?.data || error.message);
+    console.error(
+      "TikTok callback error:",
+      error.response?.data || error.message
+    );
     res.redirect(
-      `https://cross-poster-fe.vercel.app/tiktok-callback?error=${encodeURIComponent(
+      `${process.env.FRONTEND_URL}/tiktok-callback#error=${encodeURIComponent(
         error.message
       )}`
     );
   }
 });
 
-app.post("/api/tiktok/upload", uploadMiddleware.single("video"), async (req, res) => {
+// 3. TikTok API endpoints
+app.post("/api/tiktok/upload", upload.single("video"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No video file uploaded" });
@@ -302,12 +338,13 @@ app.post("/api/tiktok/upload", uploadMiddleware.single("video"), async (req, res
       });
     }
 
+    // Validate file size (50MB max for TikTok sandbox)
     if (req.file.size > 50 * 1024 * 1024) {
       return res.status(400).json({ error: "Video file too large (max 50MB)" });
     }
 
     const form = new FormData();
-    form.append("video", fs.createReadStream(req.file.path), {
+    form.append("video", req.file.buffer, {
       filename: req.file.originalname,
       contentType: req.file.mimetype,
     });
@@ -325,9 +362,6 @@ app.post("/api/tiktok/upload", uploadMiddleware.single("video"), async (req, res
         maxBodyLength: Infinity,
       }
     );
-
-    // Clean up the uploaded file
-    fs.unlinkSync(req.file.path);
 
     res.json({
       success: true,
@@ -386,7 +420,10 @@ app.post("/api/tiktok/post", async (req, res) => {
       shareUrl: response.data.data.share_url,
     });
   } catch (error) {
-    console.error("Post creation error:", error.response?.data || error.message);
+    console.error(
+      "Post creation error:",
+      error.response?.data || error.message
+    );
     res.status(500).json({
       error: "Failed to create post",
       details: error.response?.data || error.message,
@@ -394,19 +431,37 @@ app.post("/api/tiktok/post", async (req, res) => {
   }
 });
 
-// Use route files
-app.use("/api/facebook", facebookRoutes);
-app.use("/api/linkedin", linkedinRoutes);
-app.use("/api/twitter", twitterRoutes);
+// ============ LEGACY ENDPOINTS (for backward compatibility) ============
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Something went wrong!' });
+// YouTube Info Endpoint
+app.post("/youtube/channel-info", async (req, res) => {
+  const { accessToken } = req.body;
+
+  try {
+    const channelInfo = await getYouTubeChannelInfo(accessToken);
+    res.json({ channelInfo });
+  } catch (error) {
+    console.error("Error getting YouTube channel info:", error);
+    res.status(500).json({ error: "Failed to get channel info" });
+  }
 });
 
-// Start server
-const port = process.env.PORT || 8000;
+// ============ START SERVER ============
+
+app.get("/", (req, res) => {
+  res.send("✅ TikTok Backend is Live!");
+});
+
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`Server running at http://localhost:${port}`);
+});
+
+//  multer configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
 });
