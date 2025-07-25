@@ -12,7 +12,7 @@ export const getAuthUrl = async () => {
     });
 
     // Use environment variable for redirect URI
-    const redirectUri = process.env.TWITTER_REDIRECT_URI || "http://localhost:8000/auth/twitter/callback";
+const redirectUri = process.env.TWITTER_REDIRECT_URI || `${process.env.BACKEND_URL}/auth/twitter/callback`;
     
     const authLink = await client.generateAuthLink(redirectUri, {
       linkMode: "authorize",

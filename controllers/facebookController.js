@@ -12,7 +12,7 @@ import {
 const REACT_APP_FB_APP_ID = "1057966605784043";
 const REACT_APP_FB_APP_SECRET = "d84933382c363ca71fcb146268ff0cdc";
 
-const FRONTEND_REDIRECT = "https://cross-poster-fe.vercel.app";
+const FRONTEND_REDIRECT = "${process.env.FRONTEND_URL}";
 const apiVersion = "v18.0";
 
 // Helper function for consistent error responses

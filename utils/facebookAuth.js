@@ -5,7 +5,7 @@ dotenv.config();
 
 const clientId = "1057966605784043";
 const clientSecret = "d84933382c363ca71fcb146268ff0cdc";
-const redirectUri = "https://cross-poster-fe.vercel.app/auth/facebook/callback";
+const redirectUri = `${process.env.FRONTEND_URL}/auth/facebook/callback`;
 const apiVersion = "v18.0";
 // Enhanced error handler with more specific error codes
 const handleFacebookError = (error, action) => {

@@ -7,7 +7,7 @@ dotenv.config();
 // Configuration - Always use environment variables in production
 const INSTAGRAM_APP_ID = "1127936376040598";
 const INSTAGRAM_APP_SECRET = "68758cb51c48c1064cdcefa73c2a27b5";
-const INSTAGRAM_REDIRECT_URI = "https://cross-poster-fe.vercel.app/auth/instagram/callback";
+const INSTAGRAM_REDIRECT_URI = "${process.env.FRONTEND_URL}/auth/instagram/callback";
 
 // Validate configuration
 if (!INSTAGRAM_APP_ID || !INSTAGRAM_APP_SECRET || !INSTAGRAM_REDIRECT_URI) {

@@ -6,7 +6,7 @@ dotenv.config();
 // Get credentials from environment variables
 const clientId ='77igg9177iv3cg';
 const clientSecret = 'WPL_AP1.GNjqyb561TVVw4fl.hq53NA=='
-const redirectUri = 'https://cross-poster-fe.vercel.app/auth/linkedin/callback';
+const redirectUri = `${process.env.FRONTEND_URL}/auth/linkedin/callback`;
 
 export const generateState = () => crypto.randomBytes(16).toString("hex");
 

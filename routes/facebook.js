@@ -68,7 +68,7 @@ router.get('/callback', async (req, res) => {
   if (fbError) {
     console.error('Facebook OAuth error:', { fbError, errorReason, state });
     return res.redirect(
-      `https://cross-poster-fe.vercel.app/auth-error?provider=facebook&error=${encodeURIComponent(errorReason || 'unknown')}&state=${state || ''}`
+      `${process.env.FRONTEND_URL}/auth-error?provider=facebook&error=${encodeURIComponent(errorReason || 'unknown')}&state=${state || ''}`
     );
   }
 
@@ -91,7 +91,7 @@ router.get('/callback', async (req, res) => {
     ]);
 
     // Prepare success URL
-    const redirectUrl = new URL('https://cross-poster-fe.vercel.app/auth/success');
+    const redirectUrl = new URL('${process.env.FRONTEND_URL}/auth/success');
     redirectUrl.searchParams.set('provider', 'facebook');
     redirectUrl.searchParams.set('accessToken', userAccessToken);
     redirectUrl.searchParams.set('userId', userInfo.id);
@@ -108,7 +108,7 @@ router.get('/callback', async (req, res) => {
     };
     
     res.redirect(
-      `https://cross-poster-fe.vercel.app/auth-error?provider=facebook&error=${encodeURIComponent(errorDetails.message)}&code=${errorDetails.type}&state=${state || ''}`
+      `${process.env.FRONTEND_URL}/auth-error?provider=facebook&error=${encodeURIComponent(errorDetails.message)}&code=${errorDetails.type}&state=${state || ''}`
     );
   }
 });

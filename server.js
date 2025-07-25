@@ -90,24 +90,28 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false, // change to true in production with HTTPS
+      secure: true, // Enable in production (requires HTTPS)
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24,
+      sameSite: 'none', // Required for cross-site cookies
+      maxAge: 1000 * 60 * 60 * 24, // 24 hours
+      domain: '.crossposter-be.onrender.com' // Set your domain
     },
-
-    name: "tiktok.oauth.session",
+    name: "crossposter.session",
   })
 );
-
 app.use(
   cors({
-    origin: ["https://postingapp-g0p1.onrender.com", "http://localhost:3000"],
+    origin: [
+      "https://cross-poster-fe.vercel.app", // Your production frontend
+      "https://crossposter-be.onrender.com", // Your production backend
+      "http://localhost:3000", // Local development
+      "http://localhost:8000"  // Local backend
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-open-id"],
   })
 );
-
 const port = process.env.PORT || 8000;
 
 // Fix for __dirname in ES modules
