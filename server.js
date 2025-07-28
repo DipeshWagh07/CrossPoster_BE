@@ -11,7 +11,6 @@ import { URLSearchParams } from "url";
 import path from "path";
 import { v2 as cloudinary } from 'cloudinary';
 
-
 import dotenv from "dotenv";
 dotenv.config();
 import {
@@ -66,6 +65,8 @@ import {
   createTikTokPost,
 } from "./controllers/tiktokController.js";
 
+import youtubeRoutes from './routes/youtube.js';
+
 // In-memory store for PKCE verifiers (for demo purposes)
 // In production, consider a short-lived database cache
 
@@ -90,15 +91,19 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true, // Enable in production (requires HTTPS)
+      secure: process.env.NODE_ENV === 'production', // Only secure in production
       httpOnly: true,
-      sameSite: 'none', // Required for cross-site cookies
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 1000 * 60 * 60 * 24, // 24 hours
-      domain: '.crossposter-be.onrender.com' // Set your domain
+      // Only set domain in production
+      ...(process.env.NODE_ENV === 'production' && { 
+        domain: '.crossposter-be.onrender.com' 
+      })
     },
     name: "crossposter.session",
   })
 );
+
 app.use(
   cors({
     origin: [
@@ -113,6 +118,7 @@ app.use(
   })
 );
 const port = process.env.PORT || 8000;
+
 
 // Fix for __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -174,6 +180,7 @@ app.get("/auth/youtube/callback", youtubeCallback);
 app.post("/auth/youtube/exchange", handleYouTubeCodeExchange);
 app.post("/youtube/channel-info", getYouTubeChannelInfoEndpoint);
 
+
 // Twitter X Auth Routes
 app.get("/auth/twitter", initializeAuth);
 app.get("/auth/twitter/callback", handleCallback); // This handles the redirect from Twitter
@@ -186,29 +193,7 @@ try {
   console.log('Twitter API Headers:', error.response?.headers);
 }
 
-// Instead of redirecting directly, return the auth URL
-app.get('/auth/twitter', async (req, res) => {
-  try {
-    console.log('=== Getting Twitter Auth URL ===');
-    
-    // Generate the Twitter auth URL (your existing logic)
-    const authUrl = await getAuthUrl(); // Your existing function
-    
-    // Return the URL to frontend instead of redirecting
-    res.json({ 
-      success: true,
-      authUrl: authUrl 
-    });
-    
-  } catch (error) {
-    console.error('Twitter auth error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to generate Twitter authentication URL',
-      message: error.message 
-    });
-  }
-});
+
 
 // ============ API ROUTES ============
 
@@ -230,13 +215,17 @@ app.use("/api/twitter", twitterRoutes);
 app.post("/api/instagram/upload", upload.single("file"), uploadImage);
 app.post("/api/instagram/post", createPost);
 
-app.post("/api/upload-youtube-video", uploadVideoEndpoint);
+app.post('/api/youtube/upload', upload.single('video'), uploadVideoEndpoint);
+
 
 app.post(
   "/api/tiktok/upload",
   multer({ storage: multer.memoryStorage() }).single("file"),
   uploadTikTokVideo
 );
+
+app.use('/api/youtube', youtubeRoutes);
+
 
 // ===== TikTok OAuth Routes =====
 
@@ -484,12 +473,17 @@ app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
 });
 
-//  multer configuration
+// Create uploads directory if it doesn't exist
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
+
+// Configure multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/");
+    cb(null, 'uploads/');
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
+    cb(null, Date.now() + '-' + file.originalname);
+  }
 });

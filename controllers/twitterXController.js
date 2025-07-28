@@ -8,9 +8,6 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
 
-// Temporary storage for OAuth tokens (in production, use Redis or database)
-const oauthTokenCache = new Map();
-
 import multer from 'multer';
 
 // Configure multer for LinkedIn posts

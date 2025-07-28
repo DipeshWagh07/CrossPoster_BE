@@ -1,195 +1,364 @@
 import {
-    getYouTubeAuthUrl,
-    getYouTubeTokens,
-    uploadYouTubeVideo,
-    getYouTubeChannelInfoEndpoint
-  } from '../utils/YoutubeAuth.js';
-  import multer from 'multer';
-  import path from 'path';
-  import fs from 'fs';
+  getYouTubeAuthUrl,
+  getYouTubeTokens,
+  getYouTubeChannelInfo,
   
-  // Configure multer for video uploads
-  const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      // Ensure directory exists
-      const uploadDir = 'uploads/videos/';
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-      cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-      cb(null, Date.now() + '-' + file.originalname);
+  refreshYouTubeToken,
+} from '../utils/YoutubeAuth.js';
+import { google } from 'googleapis';
+import axios from 'axios';
+import fs from 'fs';
+import { randomBytes } from 'crypto';
+import multer from 'multer';
+import path from 'path';
+import { Readable } from 'stream';
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 500 * 1024 * 1024, // 500MB max
+    files: 1
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only video files are allowed.'));
     }
-  });
-  const upload = multer({
-    storage: storage,
-    limits: {
-      fileSize: 256 * 1024 * 1024, // 256MB limit
-    },
-    fileFilter: (req, file, cb) => {
-      const allowedTypes = /mp4|avi|mov|wmv|flv|webm/;
-      const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-      const mimetype = allowedTypes.test(file.mimetype);
-  
-      if (mimetype && extname) {
-        return cb(null, true);
-      } else {
-        cb(new Error('Only video files are allowed'));
-      }
-    }
-  });
-  
-  // Start YouTube OAuth
-  export const startYouTubeAuth = (req, res) => {
-    try {
-      const authUrl = getYouTubeAuthUrl();
-      res.redirect(authUrl);
-    } catch (error) {
-      console.error('YouTube auth URL generation failed:', error);
-      res.status(500).send('Failed to generate authentication URL');
-    }
-  };
-  
-  // Handle OAuth callback
-  export const youtubeCallback = async (req, res) => {
-    const { code, error } = req.query;
-  
-    if (error) {
-      console.error('YouTube OAuth error:', error);
-      const redirectUrl = `${process.env.FRONTEND_URL}/auth/youtube/callback?error=${encodeURIComponent(error)}`;
-      return res.redirect(redirectUrl);
-    }
-  
-    if (!code) {
-      const redirectUrl = `${process.env.FRONTEND_URL}/auth/youtube/callback?error=Authorization code not provided`;
-      return res.redirect(redirectUrl);
-    }
-  
-    try {
-      const tokens = await getYouTubeTokens(code);
-      const channelInfo = await getYouTubeChannelInfo(tokens.access_token);
-      
-      // Redirect to frontend with tokens
-      const redirectUrl = `${process.env.FRONTEND_URL}/auth/youtube/callback?accessToken=${tokens.access_token}&refreshToken=${tokens.refresh_token}&channelId=${channelInfo.id}&channelName=${encodeURIComponent(channelInfo.snippet.title)}`;
-      res.redirect(redirectUrl);
-    } catch (error) {
-      console.error('YouTube OAuth error:', error);
-      const redirectUrl = `${process.env.FRONTEND_URL}/auth/youtube/callback?error=${encodeURIComponent(error.message)}`;
-      res.redirect(redirectUrl);
-    }
-  };
-  
-  // Exchange code for tokens (for frontend)
-  export const handleYouTubeCodeExchange = async (req, res) => {
-    const { code } = req.body;
-      if (!code) {
-      return res.status(400).json({ error: 'Missing authorization code' });
-      }
+  }
+});
+
+// Configure OAuth2 client
+const oauth2Client = new google.auth.OAuth2(
+  process.env.YOUTUBE_CLIENT_ID,     // Make sure this exists
+  process.env.YOUTUBE_CLIENT_SECRET, // Make sure this exists
+  process.env.YOUTUBE_REDIRECT_URI   // Make sure this exists
+);
+
+
+// Start YouTube authentication - for GET /auth/youtube
+export const startYouTubeAuth = async (req, res) => {
   try {
-      const tokens = await getYouTubeTokens(code);
-      const channelInfo = await getYouTubeChannelInfo(tokens.access_token);
-          res.json({
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        channelInfo
-
-      });
-    } catch (error) {
-      console.error('YouTube token exchange failed:', error);
-      res.status(500).json({ error: 'Token exchange failed' });
+    // Validate session exists
+    if (!req.session) {
+      throw new Error('Session not initialized');
     }
-  };
-  
-  // Upload video endpoint
-  export const uploadVideoEndpoint = [
-    upload.single('video'),
-    async (req, res) => {
-      try {
-        // Read token from Authorization header
-        const accessToken = req.headers.authorization?.split(' ')[1];
-  
-        if (!accessToken) {  return res.status(400).json({ error: 'Access token required' });
+
+    // Generate and store state
+    const state = randomBytes(16).toString('hex');
+    req.session.youtubeState = state;
+
+    // Ensure session is saved before redirect
+    await new Promise((resolve, reject) => {
+      req.session.save(err => {
+        if (err) {
+          console.error('Session save error:', err);
+          reject(new Error('Failed to save session'));
+        } else {
+          resolve();
         }
-  
-        if (!req.file) {
-          return res.status(400).json({ error: 'No video file uploaded' });
+      });
+    });
+
+    // Get auth URL
+    const authUrl = getYouTubeAuthUrl(state);
+    console.log('Redirecting to YouTube auth URL:', authUrl);
+
+    // Send response
+    return res.redirect(authUrl);
+
+  } catch (error) {
+    console.error('YouTube auth initialization failed:', {
+      error: error.message,
+      stack: error.stack,
+      session: req.session ? 'exists' : 'missing'
+    });
+    
+    return res.status(500).json({ 
+      error: 'Failed to initialize YouTube auth',
+      details: error.message 
+    });
+  }
+};
+
+export const uploadYouTubeVideo = async (accessToken, videoData, fileData) => {
+  try {
+    oauth2Client.setCredentials({
+      access_token: accessToken
+    });
+
+    const youtube = google.youtube({
+      version: 'v3',
+      auth: oauth2Client
+    });
+
+    console.log('Uploading video to YouTube:', {
+      title: videoData.title,
+      dataType: Buffer.isBuffer(fileData) ? 'Buffer' : 'File Path',
+      dataSize: Buffer.isBuffer(fileData) ? fileData.length : 'N/A'
+    });
+
+    // Create the appropriate stream based on data type
+    let mediaBody;
+    if (Buffer.isBuffer(fileData)) {
+      // Convert buffer to readable stream
+      mediaBody = Readable.from(fileData);
+    } else {
+      // Use file stream for file path
+      mediaBody = fs.createReadStream(fileData);
+    }
+
+    const response = await youtube.videos.insert({
+      part: 'snippet,status',
+      requestBody: {
+        snippet: {
+          title: videoData.title,
+          description: videoData.description || '',
+        },
+        status: {
+          privacyStatus: videoData.privacyStatus || 'public'
         }
-  
-        const { title, description, tags, privacyStatus } = req.body;
-  
-        const videoData = {
-          title: title || 'YouTube Short',
-          description: description || '',
-          tags: tags ? JSON.parse(tags) : [],
-          privacyStatus: privacyStatus || 'public',
-        };
-  
-        const result = await uploadYouTubeVideo(accessToken, videoData, req.file.path);
-  
-        // Clean up uploaded file
-        fs.unlinkSync(req.file.path);
-  
-        res.json({
-          success: true,
-          videoId: result.id,
-          videoUrl: `https://youtube.com/watch?v=${result.id}`,
-          data: result,
-        });
-      } catch (error) {
-        console.error('Error uploading video to YouTube:', error);
-        if (req.file?.path) {
-          try {   fs.unlinkSync(req.file.path);
-          } catch {}
-        }
-        res.status(500).json({ error: 'Failed to upload video', details: error.message });
+      },
+      media: {
+        body: mediaBody
       }
-    },
-  ];
-  export { getYouTubeChannelInfoEndpoint};
+    });
+
+    console.log('YouTube upload successful:', response.data.id);
+    return response.data;
+  } catch (error) {
+    console.error('YouTube upload error:', error);
+    throw new Error(`Failed to upload video: ${error.message}`);
+  }
+};
 
 
+export const uploadVideoEndpoint = async (req, res) => {
+  try {
+    console.log('Upload request received:');
+    console.log('Body:', req.body);
+    console.log('File present:', !!req.file);
+    console.log('File path:', req.file?.path);
+    console.log('File buffer:', !!req.file?.buffer);
+    console.log('File buffer size:', req.file?.buffer?.length);
+
+    const access_token = req.body.access_token;
+    if (!access_token) {
+      return res.status(400).json({
+        error: 'Missing YouTube access token',
+        details: 'Access token must be provided in the form data',
+        receivedFields: Object.keys(req.body || {})
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        error: 'No video file uploaded',
+        details: 'Please select a video file to upload'
+      });
+    }
+
+    const videoData = {
+      title: req.body.title || 'Uploaded Video',
+      description: req.body.description || '',
+      privacyStatus: 'public'
+    };
+
+    // Use buffer if available, otherwise use path
+    const fileData = req.file.buffer || req.file.path;
+    
+    if (!fileData) {
+      return res.status(400).json({
+        error: 'No file data available',
+        details: 'Neither buffer nor path found in uploaded file'
+      });
+    }
+
+    const response = await uploadYouTubeVideo(
+      access_token,
+      videoData,
+      fileData
+    );
+
+    // Clean up uploaded file if it was saved to disk
+    if (req.file.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.json({
+      success: true,
+      videoId: response.id,
+      videoUrl: `https://youtu.be/${response.id}`
+    });
+
+  } catch (error) {
+    console.error('YouTube upload failed:', error);
+
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (cleanupError) {
+        console.error('Failed to clean up file:', cleanupError);
+      }
+    }
+
+    res.status(500).json({
+      error: 'Failed to upload video',
+      details: error.message
+    });
+  }
+};
+export const youtubeCallback = async (req, res) => {
+  try {
+    // Validate session exists
+    if (!req.session) {
+      throw new Error('Session not initialized');
+    }
+
+    const { code, state, error: oauthError } = req.query;
+
+    // Debug logging
+    console.log('YouTube callback received:', {
+      codeExists: !!code,
+      state,
+      sessionState: req.session.youtubeState,
+      oauthError
+    });
+
+    // Verify state
+    if (!state || !req.session.youtubeState || state !== req.session.youtubeState) {
+      throw new Error('Invalid state parameter');
+    }
+
+    if (oauthError) {
+      throw new Error(`OAuth error: ${oauthError}`);
+    }
+
+    if (!code) {
+      throw new Error('Authorization code not provided');
+    }
+
+     // Exchange code for tokens
+    const tokens = await getYouTubeTokens(code);
+    if (!tokens.access_token) {
+      throw new Error('No access token received');
+    }
+
+    // Attempt to get channel info with retry logic
+    let channelInfo;
+    let attempts = 0;
+    const maxAttempts = 2;
+    
+    while (attempts < maxAttempts) {
+      try {
+        channelInfo = await getYouTubeChannelInfo(tokens.access_token);
+        break;
+      } catch (error) {
+        attempts++;
+        if (attempts >= maxAttempts) throw error;
+        // Add delay between attempts
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    // Build redirect URL
+    const redirectUrl = new URL(`${process.env.FRONTEND_URL}/auth/youtube/callback`);
+    redirectUrl.searchParams.set('access_token', tokens.access_token);
+    
+    if (tokens.refresh_token) {
+      redirectUrl.searchParams.set('refresh_token', tokens.refresh_token);
+    }
+    
+    if (channelInfo) {
+      redirectUrl.searchParams.set('channel_id', channelInfo.id);
+      redirectUrl.searchParams.set('channel_name', encodeURIComponent(channelInfo.snippet.title));
+    }
+
+    return res.redirect(redirectUrl.toString());
+
+  } catch (error) {
+    console.error('YouTube callback processing failed:', {
+      error: error.message,
+      query: req.query,
+      sessionState: req.session.youtubeState
+    });
+
+    const redirectUrl = new URL(`${process.env.FRONTEND_URL}/auth/youtube/callback`);
+    redirectUrl.searchParams.set('error', encodeURIComponent(
+      error.message.includes('channel') 
+        ? 'YouTube channel not found. Please ensure your account has a YouTube channel.'
+        : 'YouTube authentication failed'
+    ));
+    
+    return res.redirect(redirectUrl.toString());
+  }
+};
+
+export const handleYouTubeCodeExchange = async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: 'Authorization code is required' });
+    }
+
+    const tokens = await getYouTubeTokens(code);
+    res.json(tokens);
+  } catch (error) {
+    console.error('YouTube token exchange error:', error);
+    res.status(500).json({ error: 'Failed to exchange code for tokens' });
+  }
+};
+
+export const getYouTubeChannelInfoEndpoint = async (req, res) => {
+  try {
+    const { accessToken } = req.body;
+    if (!accessToken) {
+      return res.status(400).json({ error: 'Access token is required' });
+    }
+
+    const channelInfo = await getYouTubeChannelInfo(accessToken);
+    res.json({ channelInfo });
+  } catch (error) {
+    console.error('YouTube channel info error:', error);
+    res.status(500).json({ error: 'Failed to get channel info' });
+  }
+};
 
 
+// Refresh token endpoint (if you need it later)
+export const refreshTokenEndpoint = async (req, res) => {
+  const { refreshToken } = req.body;
 
+  if (!refreshToken) {
+    return res.status(400).json({ error: 'Refresh token is required' });
+  }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  try {
+    console.log('Refreshing YouTube access token...');
+    const newTokens = await refreshYouTubeToken(refreshToken);
+    
+    res.json({
+      success: true,
+      accessToken: newTokens.access_token,
+      refreshToken: newTokens.refresh_token || refreshToken,
+      expiresIn: newTokens.expiry_date
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    res.status(401).json({ 
+      error: 'Failed to refresh token', 
+      details: error.message 
+    });
+  }
+};
